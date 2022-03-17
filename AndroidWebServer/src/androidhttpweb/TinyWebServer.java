@@ -23,6 +23,8 @@
  */
 package androidhttpweb;
 
+import android.util.Log;
+
 import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -38,6 +40,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
@@ -48,15 +51,22 @@ import java.util.TimeZone;
 import java.util.regex.Pattern;
 
 /**
- *
  * @author Sonu Auti @cis
+   @author SantusSusanin
+ * THIS IS HEAVILY INLINE-MODIFIED VERSION OF WEBSERVER
+ * OBTAINED FROM https://github.com/sonuauti/Android-Web-Server
+ * NO TIME TO EXPLAIN OR MAKE PROPER PULL_REQUEST
  */
 public class TinyWebServer extends Thread {
+
+    private static final String TAG = "TinyWebServer";
+    static final String DEFAULT_WEB_API_CLASSNAME = TinyWebServer.class.getPackage().getName() + ".WebApi";
+    static private String WEB_API_CLASSNAME = DEFAULT_WEB_API_CLASSNAME;
 
     /**
      * @param args the command line arguments
      */
-    private static ServerSocket serverSocket;
+    private static ServerSocket serverSocket = null;
     private final Map<String, String> lowerCaseHeader = new HashMap<>();
 
     public static String CONTENT_TYPE = "text/html";
@@ -64,7 +74,7 @@ public class TinyWebServer extends Thread {
     private String CONN_TYPE = "";
     private String Content_Encoding = "";
     private String content_length = "";
-    private String STATUS = "200";
+    static private String STATUS = "200";
     private boolean keepAlive = true;
     private String SERVER_NAME = "Firefly http server v0.1";
     private static final String MULTIPART_FORM_DATA_HEADER = "multipart/form-data";
@@ -149,23 +159,34 @@ public class TinyWebServer extends Thread {
     
     public static String WEB_DIR_PATH="/";
     public static String SERVER_IP="localhost";
+    private static InetAddress SERVER_ADDRESS=null;
     public static int SERVER_PORT=9000;
-    public static boolean isStart=true;
+    public static boolean isStart=false;
     public static String INDEX_FILE_NAME="index.html";
     
 
-    public TinyWebServer(final String ip, final int port) throws IOException {
-        
-        InetAddress addr = InetAddress.getByName(ip); ////"172.31.0.186"); 
-        serverSocket = new ServerSocket(port, 100, addr);
-        serverSocket.setSoTimeout(5000);  //set timeout for listner
+    public TinyWebServer(final InetAddress addr, final int port) throws IOException {
+        if (addr != null) {
+            serverSocket = new ServerSocket(port, 100, addr);
+            serverSocket.setSoTimeout(5000);  //set timeout for listener
+        } else {
+            Log.e(TAG,  String.format("ctor(): unresolved Server Address"));
+            serverSocket = null;
+        }
+    }
 
+    static public boolean isReady() {
+        return serverSocket != null;
+    }
+
+    static public void setWebApiClassname(final String webApiClassname)
+    {
+        WEB_API_CLASSNAME = webApiClassname;
     }
 
     @Override
     public void run() {
-
-        while (isStart) {
+        while (isStart && isReady()) {
             try {
                 //wait for new connection on port 5000
                 Socket newSocket = serverSocket.accept();
@@ -176,7 +197,6 @@ public class TinyWebServer extends Thread {
             }
 
         }//endof Never Ending while loop
-
     }
 
     public class EchoThread extends Thread {
@@ -206,8 +226,8 @@ public class TinyWebServer extends Thread {
 
                 while (in.read(data) != -1) {
                     String recData = new String(data).trim();
-                    //System.out.println("received data: \n" + recData);
-                    //System.out.println("------------------------------");
+                    Log.i(TAG, "received data: \n" + recData);
+                    Log.i(TAG, "------------------------------");
                     String[] header = recData.split("\\r?\\n");
 
                     String contentLen = "0";
@@ -226,7 +246,7 @@ public class TinyWebServer extends Thread {
                     for (int h = 0; h < header.length; h++) {
                         String value = header[h].trim();
 
-                        //System.out.println(header[h]+" -> "+CONTENT_LENGTH_PATTERN.matcher(header[h]).find());
+                        Log.i(TAG, header[h]+" -> "+CONTENT_LENGTH_PATTERN.matcher(header[h]).find());
                         if (CONTENT_LENGTH_PATTERN.matcher(value).find()) {
                             contentLen = value.split(":")[1].trim();
                         } else if (CONTENT_TYPE_PATTERN.matcher(value).find()) {
@@ -254,16 +274,16 @@ public class TinyWebServer extends Thread {
                             if (postData.length() > 0 && contentLen.length() > 0) {
                                 int len = Integer.valueOf(contentLen);
                                 postData = postData.substring(0, len);
-                               // System.out.println("Post data -> " + contentLen + " ->" + postData);
+                               Log.i(TAG, "Post data -> " + contentLen + " ->" + postData);
                             }
                         }
 
-                       // System.out.println("contentLen ->" + contentLen + "\ncontentType ->" + contentType + "\nhostname ->" + hostname + "\nconnectionType-> " + connectionType + "\nhostname ->" + hostname + "\nuserAgent -> " + userAgent);
+                       Log.i(TAG, "contentLen ->" + contentLen + "\ncontentType ->" + contentType + "\nhostname ->" + hostname + "\nconnectionType-> " + connectionType + "\nhostname ->" + hostname + "\nuserAgent -> " + userAgent);
                         final String requestLocation = h1[1];
                         if (requestLocation != null) {
                             processLocation(out, requestLocation, postData);
                         }
-                        //System.out.println("requestLocation "+requestLocation);
+                        Log.i(TAG, "requestLocation "+requestLocation);
                     }
 
                 }
@@ -287,7 +307,7 @@ public class TinyWebServer extends Thread {
                 break;
             default:
 
-                System.out.println("url location -> " + location);
+                Log.i(TAG, "url location -> " + location);
                 URL geturl = getDecodedUrl("http://localhost" + location);
                 String[] dirPath = geturl.getPath().split("/");
                 String fullFilePath=geturl.getPath();
@@ -298,15 +318,15 @@ public class TinyWebServer extends Thread {
                         if (qparms==null){ qparms=new HashMap<String,String>();}
                         qparms.put("_POST", postData);
                     }
-                    //System.out.println("File name " + fileName);
-                    //System.out.println("url parms " + qparms);
+                    Log.i(TAG, "File name " + fileName);
+                    Log.i(TAG, "url parms " + qparms);
                     CONTENT_TYPE = getContentType(fileName);
                     if(!CONTENT_TYPE.equals("text/plain")){
-                       // System.out.println("Full file path - >"+fullFilePath +" "+CONTENT_TYPE);
+                       Log.i(TAG, "Full file path - >"+fullFilePath +" "+CONTENT_TYPE);
 
                         if(CONTENT_TYPE.equals("image/jpeg") || CONTENT_TYPE.equals("image/png") || CONTENT_TYPE.equals("video/mp4")){
                            byte[] bytdata=readImageFiles(WEB_DIR_PATH+fullFilePath,CONTENT_TYPE); 
-                           //System.out.println(bytdata.length);
+                           Log.i(TAG, String.valueOf(bytdata.length));
                            if(bytdata!=null){
                                 constructHeaderImage(out, bytdata.length+"", bytdata);
                            }else{
@@ -363,25 +383,25 @@ public class TinyWebServer extends Thread {
 
     public String getResultByName(String name, HashMap qparms) {
         try {
-            String ClassName = "appapis.queryfiles.AppApis";
-            Class<?> rClass = Class.forName(ClassName); // convert string classname to class
+            Class<?> rClass = Class.forName(WEB_API_CLASSNAME); // convert string classname to class
             Object obj = rClass.newInstance();          // invoke empty constructor
             Method getNameMethod = obj.getClass().getMethod(name, HashMap.class);
             STATUS = TinyWebServer.OKAY;
+            Log.i(TAG, String.format("Trying to call method %s from %s class object", name, WEB_API_CLASSNAME));
             return getNameMethod.invoke(obj, qparms).toString();
         } catch (Exception er) {
-           // er.printStackTrace();
+            er.printStackTrace();
             return pageNotFound();
         }
     }
 
     public void setRequestType(String type) {
-       // System.out.println("REQUEST TYPE " + type);
+       Log.i(TAG, "REQUEST TYPE " + type);
         this.REQUEST_TYPE = type;
     }
 
     public void setHttpVer(String httpver) {
-       // System.out.println("REQUEST ver " + httpver);
+       Log.i(TAG, "REQUEST ver " + httpver);
         this.HTTP_VER = httpver;
     }
 
@@ -393,7 +413,7 @@ public class TinyWebServer extends Thread {
         return this.HTTP_VER;
     }
 
-    public String pageNotFound() {
+    static public String pageNotFound() {
         STATUS = NOT_FOUND;
         CONTENT_TYPE = "text/html";
         //customize your page here
@@ -417,7 +437,6 @@ public class TinyWebServer extends Thread {
         mContentTypes.put("mp4", "video/mp4");
         mContentTypes.put("mov", "video/quicktime");
         mContentTypes.put("wmv", "video/x-ms-wmv");
-
     }
 
     //get request content type
@@ -435,7 +454,7 @@ public class TinyWebServer extends Thread {
         if (index != -1) {
             String e = path.substring(index + 1);
             String ct = mContentTypes.get(e);
-           // System.out.println("content type: " + ct);
+           Log.i(TAG, "content type: " + ct);
             if (ct != null) {
                 return ct;
             }
@@ -479,7 +498,7 @@ public class TinyWebServer extends Thread {
             pw.flush();
             output.write(data);
             output.flush();
-            //System.out.println("data sent success");
+            Log.i(TAG, "data sent success");
         
         //pw.close();
         }catch(Exception er){er.printStackTrace();}
@@ -509,7 +528,7 @@ public class TinyWebServer extends Thread {
           }catch(Exception er){}
         return null;
     }
-    public String readFile(String fileName){
+    static public String readFile(String fileName){
         String content="";    
         try{
             File ifile=new File(fileName);
@@ -536,27 +555,33 @@ public class TinyWebServer extends Thread {
     
     
     public static void init(String ip,int port,String public_dir){
-    
         SERVER_IP=ip;
         SERVER_PORT=port;
         WEB_DIR_PATH=public_dir;
         scanFileDirectory();
-        
     }
     
     public static void startServer(String ip,int port,String public_dir){
-        try {
+        Log.i(TAG, "Server Starting");
+        init(ip,port,public_dir);
 
-            isStart=true;
-            init(ip,port,public_dir);
-            Thread t = new TinyWebServer(SERVER_IP, SERVER_PORT);
-            t.start();
-            System.out.println("Server Started !");
-           
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (Exception e) {
-        }
+        new Thread(() -> {
+            try {
+                SERVER_ADDRESS = InetAddress.getByName(ip);
+            } catch (UnknownHostException e)
+            {
+                SERVER_ADDRESS = null;
+            } finally {
+                Log.i(TAG, String.format("startServer: got IP %s for %s:%d\"", SERVER_ADDRESS.toString(), SERVER_IP, SERVER_PORT));
+                try {
+                    new TinyWebServer(SERVER_ADDRESS, SERVER_PORT).start();
+                    isStart=true;
+                    Log.i(TAG, "Server Started !");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
     }
     
     public static void stopServer(){
@@ -564,7 +589,7 @@ public class TinyWebServer extends Thread {
             try{
             isStart=false;
             serverSocket.close();
-            System.out.println("Server stopped running !");
+            Log.i(TAG, "Server stopped running !");
             }catch(IOException er){
                 er.printStackTrace();
             }
@@ -580,18 +605,20 @@ public class TinyWebServer extends Thread {
             if(file.isDirectory()){
                 File[] allFiles=file.listFiles();
                 for (File allFile : allFiles) {
-                    //System.out.println(allFile.getName().split("\\.")[0]);
                     if(allFile.getName().split("\\.")[0].equalsIgnoreCase("index")){
                         TinyWebServer.INDEX_FILE_NAME=allFile.getName();
                         isIndexFound=true;
+                        Log.i(TAG, "scanFileDirectory: file taken as index "+allFile.getName());
                     }
                 }
             }
             
-        }catch(Exception er){}
+        } catch(Exception er){
+            Log.e(TAG, "scanFileDirectory: Unknown Exception!");
+        }
         
         if(!isIndexFound){
-            System.out.println("Index file not found !");
+            Log.w(TAG, "scanFileDirectory: Index file not found !");
         }
     }
     
@@ -601,7 +628,7 @@ public class TinyWebServer extends Thread {
 
             Thread t = new TinyWebServer(SERVER_IP, SERVER_PORT);
             t.start();
-            System.out.println("Server Started !");
+            Log.i(TAG, "Server Started !");
 
         } catch (IOException e) {
             e.printStackTrace();
